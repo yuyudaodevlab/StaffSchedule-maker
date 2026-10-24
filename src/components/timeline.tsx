@@ -9,6 +9,13 @@ import {
   LocateFixed,
   ArrowLeftRight,
 } from "lucide-react";
+import { flushSync } from "react-dom";
+import { Modal, Field } from "./ui";
+import {
+  captureTimeline,
+  timelineRegions,
+  type CaptureRegion,
+} from "@/lib/timeline-image";
 import { Project, Session, Filter } from "@/lib/model";
 import {
   sorted,
@@ -65,12 +72,21 @@ export function Timeline({
     x: number;
     y: number;
   } | null>(null);
-  const [position, setPosition] = useState({
+  const [livePosition, setPosition] = useState({
     top: 0,
     left: 0,
     height: 650,
     width: 1000,
   });
+  const [capture, setCapture] = useState<CaptureRegion | null>(null);
+  const position = capture || livePosition;
+  const [imageDialog, setImageDialog] = useState(false);
+  const [imageScale, setImageScale] = useState(2);
+  const [images, setImages] = useState<string[]>([]);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState("");
+  const [imageProgress, setImageProgress] = useState("");
+
   useEffect(() => {
     const el = scroll.current;
     if (!el) return;
@@ -423,8 +439,108 @@ export function Timeline({
     { length: Math.max(0, lastTick - firstTick + 1) },
     (_, i) => firstTick + i,
   );
+  const exportTimeline = async () => {
+    setImageBusy(true);
+    setImageError("");
+    setImages([]);
+    try {
+      await document.fonts.ready;
+      const regions = timelineRegions(
+        vertical ? 80 + totalSize : 360 + length,
+        Math.max(300, vertical ? 90 + length : 44 + totalSize),
+        vertical ? 80 : 360,
+        vertical ? 90 : 44,
+      );
+      const output: string[] = [];
+      for (const [index, region] of regions.entries()) {
+        flushSync(() => {
+          setCapture(region);
+          setImageProgress(`${index + 1} / ${regions.length}枚`);
+        });
+        const canvas =
+          scroll.current?.querySelector<HTMLElement>(".timeline-canvas");
+        if (!canvas)
+          throw new Error(
+            "タイムラインが見つかりません。画面を開き直してください。",
+          );
+        output.push(
+          await captureTimeline(canvas, region, vertical, imageScale),
+        );
+      }
+      setImages(output);
+    } catch (error) {
+      setImageError(
+        error instanceof Error
+          ? error.message
+          : "画像を作成できませんでした。解像度を下げて再度お試しください。",
+      );
+    } finally {
+      setCapture(null);
+      setImageBusy(false);
+    }
+  };
   return (
     <section className="timeline-shell">
+      {imageDialog && (
+        <Modal
+          title="運営タイムラインを画像にする"
+          wide
+          onClose={() => {
+            if (!imageBusy) {
+              setImageDialog(false);
+              setImages([]);
+            }
+          }}
+        >
+          <p>
+            現在の色・目盛り・並び順・表示方向をそのまま画像にします。スクロール外も含みます。折りたたんだ行や非表示の人物は出力しません。
+          </p>
+          <p className="muted small">
+            大きいタイムラインは見出しを繰り返して分割します。分割境界をまたぐ予定は隣の画像へ続きます。
+          </p>
+          <Field label="タイムライン画像の解像度">
+            <select
+              disabled={imageBusy}
+              value={imageScale}
+              onChange={(e) => {
+                setImageScale(Number(e.target.value));
+                setImages([]);
+              }}
+            >
+              <option value={1}>1倍</option>
+              <option value={2}>2倍（高画質）</option>
+            </select>
+          </Field>
+          <button
+            className="primary"
+            disabled={imageBusy}
+            onClick={exportTimeline}
+          >
+            {imageBusy
+              ? `画像を作成中… ${imageProgress}`
+              : "タイムライン画像をプレビュー"}
+          </button>
+          {imageError && <p role="alert">{imageError}</p>}
+          <div className="image-preview">
+            {images.map((url, index) => (
+              <div key={index}>
+                <p>
+                  {index + 1} / {images.length}枚
+                </p>
+                <img src={url} alt={`運営タイムライン ${index + 1}枚目`} />
+                <a
+                  className="button"
+                  href={url}
+                  download={`運営タイムライン-${date || "全日程"}-${index + 1}.png`}
+                >
+                  PNGを保存（{index + 1}枚目）
+                </a>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
       {context && (
         <>
           <button
@@ -480,6 +596,14 @@ export function Timeline({
           </span>
         </div>
         <div className="toolbar">
+          <button
+            onClick={() => {
+              setImageError("");
+              setImageDialog(true);
+            }}
+          >
+            画像にする
+          </button>
           <button
             title="ズームアウト"
             className="icon-button"
