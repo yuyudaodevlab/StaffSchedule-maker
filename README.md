@@ -191,7 +191,7 @@ bash：
 NEXT_PUBLIC_BASE_PATH=/StaffSchedule-maker npm run build
 ```
 
-`out/` 全体をPagesの配信アーティファクトとして公開します。GitHub Actionsで `actions/upload-pages-artifact` と `actions/deploy-pages` を使用できます。ブランチ配信を使う場合は `out/.nojekyll` を含めて `_next/` が除外されないようにしてください。共有リンクにもbasePathが反映されます。
+`out/` 全体をPagesの配信アーティファクトとして公開します。GitHub Actionsでは `actions/configure-pages`（`static_site_generator: next` は指定せず `basePath` の自動上書きを回避）、ビルドステップの環境変数 `NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}`、ビルド後の `out/.nojekyll` 生成、`actions/upload-pages-artifact` と `actions/deploy-pages` を使用します。これにより `_next/` や `/share/` が除外されず、共有リンクにも basePath が正確に反映されます。
 
 ### Cloudflare Pages / Netlify
 
