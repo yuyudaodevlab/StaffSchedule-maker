@@ -612,6 +612,7 @@ export function Timeline({
           </button>
           <button
             title="ズームアウト"
+            aria-label="ズームアウト"
             className="icon-button"
             onClick={() =>
               edit((d) => {
@@ -624,6 +625,7 @@ export function Timeline({
           <span className="small">{Math.round((ppm / 3) * 100)}%</span>
           <button
             title="ズームイン"
+            aria-label="ズームイン"
             className="icon-button"
             onClick={() =>
               edit((d) => {
@@ -673,6 +675,7 @@ export function Timeline({
           </button>
           <button
             title="時間軸を反転"
+            aria-label="時間軸を反転"
             onClick={() =>
               edit((d) => {
                 d.settings.vertical = !d.settings.vertical;
@@ -780,7 +783,8 @@ export function Timeline({
                     <>
                       <button
                         onClick={() => toggle(row.key)}
-                        aria-label={`${row.venue}を折りたたむ`}
+                        aria-label={`${row.venue}を${closed.includes(row.key) ? "展開" : "折りたたむ"}`}
+                        aria-expanded={!closed.includes(row.key)}
                       >
                         {closed.includes(row.key) ? (
                           <ChevronRight size={14} />
@@ -795,7 +799,11 @@ export function Timeline({
                   ) : row.kind === "group" ? (
                     <>
                       <span />
-                      <button onClick={() => toggle(row.key)}>
+                      <button
+                        onClick={() => toggle(row.key)}
+                        aria-label={`${row.group}を${closed.includes(row.key) ? "展開" : "折りたたむ"}`}
+                        aria-expanded={!closed.includes(row.key)}
+                      >
                         {closed.includes(row.key) ? (
                           <ChevronRight size={14} />
                         ) : (
