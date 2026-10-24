@@ -26,13 +26,14 @@ const settingsSchema = z
     snap: z.number().int().min(1).max(60).default(5),
     tick: z.number().int().min(1).max(60).default(30),
     zoom: z.number().min(1).max(16).default(3),
-    startHour: z.number().min(0).max(23).default(8),
-    endHour: z.number().min(1).max(24).default(22),
+    startHour: z.number().int().min(0).max(23).default(8),
+    endHour: z.number().int().min(1).max(24).default(22),
     travelMinutes: z.number().min(0).max(240).default(15),
     gapMinutes: z.number().min(0).max(240).default(0),
     sort: z.enum(["asc", "desc", "manual"]).default("asc"),
     vertical: z.boolean().default(false),
     showEmpty: z.boolean().default(false),
+    showFree: z.boolean().default(false),
     density: z.enum(["normal", "compact"]).default("normal"),
     theme: z.enum(["light", "dark", "system"]).default("system"),
     hiddenPeople: z.array(id).default([]),
@@ -77,7 +78,15 @@ export const projectSchema = z
           date: z
             .string()
             .regex(/^\d{4}-\d{2}-\d{2}$/)
-            .refine((s) => (()=>{try{return Temporal.PlainDate.from(s).toString()===s;}catch{return false;}})()),
+            .refine((s) =>
+              (() => {
+                try {
+                  return Temporal.PlainDate.from(s).toString() === s;
+                } catch {
+                  return false;
+                }
+              })(),
+            ),
         }),
       )
       .max(366),
@@ -111,7 +120,14 @@ export const projectSchema = z
         }),
       )
       .max(5000),
-    roles: z.array(z.object(entity)).max(500),
+    roles: z
+      .array(
+        z.object({
+          ...entity,
+          category: z.enum(["speaker", "staff"]).default("staff"),
+        }),
+      )
+      .max(500),
     programs: z
       .array(
         z.object({
@@ -206,16 +222,34 @@ export const projectSchema = z
       key: "venues" | "people" | "groups" | "roles" | "programs" | "sessions",
       value: string,
     ) => p[key].some((x) => x.id === value);
-    const allIds = [p.project.id,...p.days.map(x=>x.id),...p.venues.map(x=>x.id),...p.groups.map(x=>x.id),...p.people.map(x=>x.id),...p.roles.map(x=>x.id),...p.programs.map(x=>x.id),...p.sessions.map(x=>x.id),...p.assignments.map(x=>x.id)];
-    if(new Set(allIds).size!==allIds.length) issue("エンティティ間でIDが重複しています");
-    for(const v of p.venues) if(v.availableStart && v.availableEnd && Date.parse(v.availableStart)>=Date.parse(v.availableEnd)) issue("会場の利用終了は利用開始より後にしてください");
+    const allIds = [
+      p.project.id,
+      ...p.days.map((x) => x.id),
+      ...p.venues.map((x) => x.id),
+      ...p.groups.map((x) => x.id),
+      ...p.people.map((x) => x.id),
+      ...p.roles.map((x) => x.id),
+      ...p.programs.map((x) => x.id),
+      ...p.sessions.map((x) => x.id),
+      ...p.assignments.map((x) => x.id),
+    ];
+    if (new Set(allIds).size !== allIds.length)
+      issue("エンティティ間でIDが重複しています");
+    for (const v of p.venues)
+      if (
+        v.availableStart &&
+        v.availableEnd &&
+        Date.parse(v.availableStart) >= Date.parse(v.availableEnd)
+      )
+        issue("会場の利用終了は利用開始より後にしてください");
     for (const s of p.sessions) {
       if (
         !has("programs", s.programId) ||
         (s.venueId && !has("venues", s.venueId))
       )
         issue("実施枠の参照先がありません");
-      if(Date.parse(s.end)-Date.parse(s.start)>366*86400000) issue("1つの実施枠は366日以内にしてください");
+      if (Date.parse(s.end) - Date.parse(s.start) > 366 * 86400000)
+        issue("1つの実施枠は366日以内にしてください");
       if (Date.parse(s.start) >= Date.parse(s.end))
         issue("開始時刻は終了時刻より前に設定してください");
     }

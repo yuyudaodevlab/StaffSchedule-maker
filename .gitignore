@@ -34,3 +34,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# browser verification artifacts
+/tests/*.png
+/tests/*.pdf
+/tests/large.json
+/playwright-report/
+/test-results/

@@ -8,7 +8,9 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "preview": "node scripts/preview.mjs",
-    "format": "prettier --write src tests scripts next.config.ts README.md"
+    "format": "prettier --write src tests scripts next.config.ts README.md",
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "test:scale": "tsx scripts/performance-smoke.ts"
   },
   "dependencies": {
     "@js-temporal/polyfill": "0.5.1",

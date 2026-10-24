@@ -28,6 +28,7 @@ export function Masters({ p, kind }: { p: Project; kind: MasterKind }) {
   const [deletion, setDeletion] = useState<string | null>(null);
   const [bulk, setBulk] = useState<string | null>(null);
   const edit = useStore((s) => s.edit);
+  const [rolePeople, setRolePeople] = useState<string[]>([]);
   const make = (): Entity => {
     const base = {
       id: uid(),
@@ -43,7 +44,7 @@ export function Masters({ p, kind }: { p: Project; kind: MasterKind }) {
         ? { ...base, personIds: [], representativeIds: [] }
         : kind === "venues"
           ? { ...base, capacity: 1, availableStart: "", availableEnd: "" }
-          : base;
+          : { ...base, category: "staff" };
   };
   const remove = (id: string) =>
     edit((d) => {
@@ -95,7 +96,13 @@ export function Masters({ p, kind }: { p: Project; kind: MasterKind }) {
           {kind === "people" && (
             <button onClick={() => setBulk("")}>名前を一括登録</button>
           )}
-          <button className="primary" onClick={() => setEntity(make())}>
+          <button
+            className="primary"
+            onClick={() => {
+              setRolePeople([]);
+              setEntity(make());
+            }}
+          >
             <Plus size={17} />
             {titles[kind]}を追加
           </button>
@@ -128,7 +135,16 @@ export function Masters({ p, kind }: { p: Project; kind: MasterKind }) {
               </p>
             )}
             <div className="toolbar">
-              <button onClick={() => setEntity(structuredClone(item))}>
+              <button
+                onClick={() => {
+                  setRolePeople(
+                    p.people
+                      .filter((person) => person.roleIds.includes(item.id))
+                      .map((person) => person.id),
+                  );
+                  setEntity(structuredClone(item));
+                }}
+              >
                 <Pencil size={14} />
                 編集
               </button>
@@ -194,6 +210,12 @@ export function Masters({ p, kind }: { p: Project; kind: MasterKind }) {
                 const i = items.findIndex((x) => x.id === entity.id);
                 if (i < 0) items.push(entity);
                 else items[i] = entity;
+                if (kind === "roles")
+                  d.people.forEach((person) => {
+                    person.roleIds = rolePeople.includes(person.id)
+                      ? [...new Set([...person.roleIds, entity.id])]
+                      : person.roleIds.filter((id) => id !== entity.id);
+                  });
               });
               setEntity(null);
             }}
@@ -279,6 +301,44 @@ export function Masters({ p, kind }: { p: Project; kind: MasterKind }) {
                       }
                     />
                     {r.name}
+                  </label>
+                ))}
+              </>
+            )}
+            {"category" in entity && (
+              <>
+                <Field label="共有時の人物分類">
+                  <select
+                    value={entity.category}
+                    onChange={(e) =>
+                      setEntity({
+                        ...entity,
+                        category: e.target.value as "speaker" | "staff",
+                      })
+                    }
+                  >
+                    <option value="speaker">登壇者・出演者</option>
+                    <option value="staff">スタッフ・その他</option>
+                  </select>
+                </Field>
+                <h4>デフォルトの担当人物</h4>
+                <p className="muted small">
+                  実際の担当はプログラムごとに設定できます。
+                </p>
+                {p.people.map((person) => (
+                  <label className="check" key={person.id}>
+                    <input
+                      type="checkbox"
+                      checked={rolePeople.includes(person.id)}
+                      onChange={(e) =>
+                        setRolePeople(
+                          e.target.checked
+                            ? [...rolePeople, person.id]
+                            : rolePeople.filter((id) => id !== person.id),
+                        )
+                      }
+                    />
+                    {person.name}
                   </label>
                 ))}
               </>

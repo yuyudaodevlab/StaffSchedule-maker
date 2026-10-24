@@ -74,3 +74,18 @@ export function mergeIntervals(intervals: [number, number][]) {
   }
   return out;
 }
+/** Wall-clock boundaries follow the event timezone, including 23/25-hour DST days. */
+export function displayDayBounds(
+  date: string,
+  startHour: number,
+  endHour: number,
+  zone: string,
+): [number, number] {
+  const boundary = (hour: number) =>
+    Temporal.PlainDate.from(date)
+      .add({ days: hour === 24 ? 1 : 0 })
+      .toPlainDateTime({ hour: hour === 24 ? 0 : hour })
+      .toZonedDateTime(zone, { disambiguation: "compatible" })
+      .epochMilliseconds;
+  return [Number(boundary(startHour)), Number(boundary(endHour))];
+}

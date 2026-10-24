@@ -1,16 +1,191 @@
-import { Project, Assignment, Session } from './model';
-import { assignedPeople } from './project';
-import { overlaps, mergeIntervals } from './time';
-export type Conflict={id:string;sessionIds:string[];target:string;reason:string;start:number;end:number;suggestion:string};
-const min=(...values:string[])=>Math.min(...values.filter(Boolean).map(Date.parse));
-const max=(...values:string[])=>Math.max(...values.filter(Boolean).map(Date.parse));
-function involvement(p:Project){const map=new Map<string,Map<string,Assignment[]>>();for(const a of p.assignments){for(const personId of assignedPeople(p,a)){if(!map.has(personId))map.set(personId,new Map());const sessions=map.get(personId)!;sessions.set(a.sessionId,[...(sessions.get(a.sessionId)||[]),a]);}}return map;}
-function dutyRange(s:Session,aa:Assignment[]):[number,number]{return [min(...aa.flatMap(a=>[a.gather,a.start||s.start]),s.gather,s.prepare,s.rehearsal),max(...aa.map(a=>a.end||s.end),s.cleanup)];}
-export function conflicts(p:Project):Conflict[]{const out:Conflict[]=[];const active=p.sessions.filter(s=>s.status!=='中止'&&!s.allowOverlap);const involved=involvement(p);const activeMap=new Map(active.map(s=>[s.id,s]));
- for(const person of p.people){const slots=[...(involved.get(person.id)||[])].flatMap(([id,aa])=>{const s=activeMap.get(id);if(!s)return [];const [start,end]=dutyRange(s,aa);return [{s,start,end}];}).sort((a,b)=>a.start-b.start);
- for(let i=0;i<slots.length;i++)for(let j=i+1;j<slots.length;j++){const a=slots[i],b=slots[j];const travel=a.s.venueId!==b.s.venueId?p.settings.travelMinutes:0;const gap=Math.max(travel,p.settings.gapMinutes);if(b.start>=a.end+Math.max(p.settings.travelMinutes,p.settings.gapMinutes)*60000)break;if(b.start>=a.end+gap*60000)continue;const overlap=overlaps(a.start,a.end,b.start,b.end);out.push({id:`person-${person.id}-${a.s.id}-${b.s.id}`,sessionIds:[a.s.id,b.s.id],target:person.displayName||person.name,reason:overlap?'担当・準備・集合・撤収時間の重複':travel?'会場間の移動時間不足':'予定間の間隔不足',start:b.start,end:overlap?Math.min(a.end,b.end):a.end+gap*60000,suggestion:`後の予定を${Math.ceil((a.end+gap*60000-b.start)/60000)}分遅らせるか、担当者を変更してください。`});}}
- for(const v of p.venues){const slots=active.filter(s=>s.venueId===v.id).map(s=>({s,start:min(s.start,s.venuePrepare,s.prepare),end:max(s.end,s.cleanup)+s.transition*60000}));const points=slots.flatMap(x=>[{time:x.start,kind:1,x},{time:x.end,kind:-1,x}]).sort((a,b)=>a.time-b.time||a.kind-b.kind);const running=new Map<string,typeof slots[number]>();for(let i=0;i<points.length;i++){const point=points[i];if(point.kind<0)running.delete(point.x.s.id);else running.set(point.x.s.id,point.x);const end=points[i+1]?.time;if(end>point.time&&running.size>v.capacity)out.push({id:`venue-${v.id}-${point.time}`,sessionIds:[...running.keys()],target:v.name,reason:`同時利用可能数（${v.capacity}）を超過`,start:point.time,end,suggestion:'会場または実施時間を変更してください。'});}
- for(const x of slots)if(v.availableStart&&x.start<Date.parse(v.availableStart)||v.availableEnd&&x.end>Date.parse(v.availableEnd))out.push({id:`availability-${x.s.id}`,sessionIds:[x.s.id],target:v.name,reason:'会場の使用可能時間外',start:x.start,end:x.end,suggestion:'会場の利用可能時間を確認してください。'});}
- return out;}
-export function personStats(p:Project,personId:string){const involved=involvement(p).get(personId);const slots=p.sessions.filter(s=>s.status!=='中止').flatMap(s=>{const aa=involved?.get(s.id);return aa?.length?[dutyRange(s,aa)]:[];});const merged=mergeIntervals(slots);const total=merged.reduce((sum,[a,b])=>sum+b-a,0)/60000;return {total,first:merged[0]?.[0],last:merged.at(-1)?.[1],free:merged.length?(merged.at(-1)![1]-merged[0][0])/60000-total:0};}
-export function freeSlots(p:Project,kind:'people'|'venues',start:number,end:number,minutes:number){const involved=involvement(p);return p[kind].map(entity=>{const busy=mergeIntervals(p.sessions.filter(s=>s.status!=='中止').flatMap(s=>{if(kind==='venues')return s.venueId===entity.id?[[min(s.start,s.venuePrepare,s.prepare),max(s.end,s.cleanup)+s.transition*60000] as [number,number]]:[];const aa=involved.get(entity.id)?.get(s.id);return aa?.length?[dutyRange(s,aa)]:[];}));const free:[number,number][]=[];let cursor=start;for(const [a,b]of busy){if(b<=start||a>=end)continue;if(a-cursor>=minutes*60000)free.push([cursor,Math.min(a,end)]);cursor=Math.max(cursor,b);}if(end-cursor>=minutes*60000)free.push([cursor,end]);return {entity,free};}).filter(x=>x.free.length);}
+import { Project, Assignment, Session } from "./model";
+import { assignedPeople } from "./project";
+import { overlaps, mergeIntervals } from "./time";
+export type Conflict = {
+  id: string;
+  sessionIds: string[];
+  target: string;
+  reason: string;
+  start: number;
+  end: number;
+  suggestion: string;
+};
+const min = (...values: string[]) =>
+  Math.min(...values.filter(Boolean).map(Date.parse));
+const max = (...values: string[]) =>
+  Math.max(...values.filter(Boolean).map(Date.parse));
+function involvement(p: Project) {
+  const map = new Map<string, Map<string, Assignment[]>>();
+  for (const a of p.assignments) {
+    for (const personId of assignedPeople(p, a)) {
+      if (!map.has(personId)) map.set(personId, new Map());
+      const sessions = map.get(personId)!;
+      sessions.set(a.sessionId, [...(sessions.get(a.sessionId) || []), a]);
+    }
+  }
+  return map;
+}
+function dutyRange(s: Session, aa: Assignment[]): [number, number] {
+  return [
+    min(
+      ...aa.flatMap((a) => [a.gather, a.start || s.start]),
+      s.gather,
+      s.prepare,
+      s.rehearsal,
+    ),
+    max(...aa.map((a) => a.end || s.end), s.cleanup),
+  ];
+}
+export function conflicts(p: Project): Conflict[] {
+  const out: Conflict[] = [];
+  const active = p.sessions.filter(
+    (s) => s.status !== "中止" && !s.allowOverlap,
+  );
+  const involved = involvement(p);
+  const activeMap = new Map(active.map((s) => [s.id, s]));
+  for (const person of p.people) {
+    const slots = [...(involved.get(person.id) || [])]
+      .flatMap(([id, aa]) => {
+        const s = activeMap.get(id);
+        if (!s) return [];
+        const [start, end] = dutyRange(s, aa);
+        return [{ s, start, end }];
+      })
+      .sort((a, b) => a.start - b.start);
+    for (let i = 0; i < slots.length; i++)
+      for (let j = i + 1; j < slots.length; j++) {
+        const a = slots[i],
+          b = slots[j];
+        const travel =
+          a.s.venueId !== b.s.venueId ? p.settings.travelMinutes : 0;
+        const gap = Math.max(travel, p.settings.gapMinutes);
+        if (
+          b.start >=
+          a.end +
+            Math.max(p.settings.travelMinutes, p.settings.gapMinutes) * 60000
+        )
+          break;
+        if (b.start >= a.end + gap * 60000) continue;
+        const overlap = overlaps(a.start, a.end, b.start, b.end);
+        out.push({
+          id: `person-${person.id}-${a.s.id}-${b.s.id}`,
+          sessionIds: [a.s.id, b.s.id],
+          target: person.displayName || person.name,
+          reason: overlap
+            ? "担当・準備・集合・撤収時間の重複"
+            : travel
+              ? "会場間の移動時間不足"
+              : "予定間の間隔不足",
+          start: b.start,
+          end: overlap ? Math.min(a.end, b.end) : a.end + gap * 60000,
+          suggestion: `後の予定を${Math.ceil((a.end + gap * 60000 - b.start) / 60000)}分遅らせるか、担当者を変更してください。`,
+        });
+      }
+  }
+  for (const v of p.venues) {
+    const slots = active
+      .filter((s) => s.venueId === v.id)
+      .map((s) => ({
+        s,
+        start: min(s.start, s.venuePrepare, s.prepare),
+        end: max(s.end, s.cleanup) + s.transition * 60000,
+      }));
+    const points = slots
+      .flatMap((x) => [
+        { time: x.start, kind: 1, x },
+        { time: x.end, kind: -1, x },
+      ])
+      .sort((a, b) => a.time - b.time || a.kind - b.kind);
+    const running = new Map<string, (typeof slots)[number]>();
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i];
+      if (point.kind < 0) running.delete(point.x.s.id);
+      else running.set(point.x.s.id, point.x);
+      const end = points[i + 1]?.time;
+      if (end > point.time && running.size > v.capacity)
+        out.push({
+          id: `venue-${v.id}-${point.time}`,
+          sessionIds: [...running.keys()],
+          target: v.name,
+          reason: `同時利用可能数（${v.capacity}）を超過`,
+          start: point.time,
+          end,
+          suggestion: "会場または実施時間を変更してください。",
+        });
+    }
+    for (const x of slots)
+      if (
+        (v.availableStart && x.start < Date.parse(v.availableStart)) ||
+        (v.availableEnd && x.end > Date.parse(v.availableEnd))
+      )
+        out.push({
+          id: `availability-${x.s.id}`,
+          sessionIds: [x.s.id],
+          target: v.name,
+          reason: "会場の使用可能時間外",
+          start: x.start,
+          end: x.end,
+          suggestion: "会場の利用可能時間を確認してください。",
+        });
+  }
+  return out;
+}
+export function personStats(p: Project, personId: string) {
+  const involved = involvement(p).get(personId);
+  const slots = p.sessions
+    .filter((s) => s.status !== "中止")
+    .flatMap((s) => {
+      const aa = involved?.get(s.id);
+      return aa?.length ? [dutyRange(s, aa)] : [];
+    });
+  const merged = mergeIntervals(slots);
+  const total = merged.reduce((sum, [a, b]) => sum + b - a, 0) / 60000;
+  return {
+    total,
+    first: merged[0]?.[0],
+    last: merged.at(-1)?.[1],
+    free: merged.length
+      ? (merged.at(-1)![1] - merged[0][0]) / 60000 - total
+      : 0,
+  };
+}
+export function freeSlots(
+  p: Project,
+  kind: "people" | "venues",
+  start: number,
+  end: number,
+  minutes: number,
+) {
+  const involved = involvement(p);
+  return p[kind]
+    .map((entity) => {
+      const busy = mergeIntervals(
+        p.sessions
+          .filter((s) => s.status !== "中止")
+          .flatMap((s) => {
+            if (kind === "venues")
+              return s.venueId === entity.id
+                ? [
+                    [
+                      min(s.start, s.venuePrepare, s.prepare),
+                      max(s.end, s.cleanup) + s.transition * 60000,
+                    ] as [number, number],
+                  ]
+                : [];
+            const aa = involved.get(entity.id)?.get(s.id);
+            return aa?.length ? [dutyRange(s, aa)] : [];
+          }),
+      );
+      const free: [number, number][] = [];
+      let cursor = start;
+      for (const [a, b] of busy) {
+        if (b <= start || a >= end) continue;
+        if (a - cursor >= minutes * 60000)
+          free.push([cursor, Math.min(a, end)]);
+        cursor = Math.max(cursor, b);
+      }
+      if (end - cursor >= minutes * 60000) free.push([cursor, end]);
+      return { entity, free };
+    })
+    .filter((x) => x.free.length);
+}

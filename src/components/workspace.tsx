@@ -48,6 +48,8 @@ import { Masters, MasterKind } from "./masters";
 import { Dashboard, ProgramList, Progress, Settings } from "./views";
 import { Filters } from "./filters";
 import { ShareDialog, ExportDialog } from "./sharing-ui";
+import { BatchDialog } from "./batch-dialog";
+import { dateShiftMinutes, type BatchOptions } from "@/lib/editing";
 import { ImportDialog } from "./import-dialog";
 type View =
   "dashboard" | "schedule" | "programs" | MasterKind | "progress" | "settings";
@@ -81,11 +83,8 @@ export function Workspace() {
   const [rename, setRename] = useState<Project | null>(null);
   const [dateInput, setDateInput] = useState("");
   const [dayAction, setDayAction] = useState("add");
-  const [minutes, setMinutes] = useState(15);
-  const [batchAction, setBatchAction] = useState("shift");
-  const [batchVenue, setBatchVenue] = useState("");
-  const [batchDay, setBatchDay] = useState("");
-  const [clearPeople, setClearPeople] = useState(false);
+  const [batchAction, setBatchAction] =
+    useState<BatchOptions["action"]>("shift");
   const [presetName, setPresetName] = useState("");
   const [toast, setToast] = useState("");
   const [scheduleMode, setScheduleMode] = useState("timeline");
@@ -101,14 +100,18 @@ export function Workspace() {
   }, [p?.project.id]);
   useEffect(() => {
     let stored = "system";
-    try { stored = localStorage.getItem("koyomi-theme") || "system"; } catch {}
+    try {
+      stored = localStorage.getItem("koyomi-theme") || "system";
+    } catch {}
     const theme = p?.settings.theme || stored;
     const media = matchMedia("(prefers-color-scheme: dark)");
     const apply = () =>
       (document.documentElement.dataset.theme =
         theme === "system" ? (media.matches ? "dark" : "light") : theme);
     apply();
-    try { localStorage.setItem("koyomi-theme", theme); } catch {}
+    try {
+      localStorage.setItem("koyomi-theme", theme);
+    } catch {}
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [p?.settings.theme]);
@@ -188,7 +191,7 @@ export function Workspace() {
     return (
       <main className="loading">
         <Coffee size={40} />
-        <h2>こよみ喫茶を開店しています…</h2>
+        <h2>スケジュールを読み込んでいます…</h2>
       </main>
     );
   return (
@@ -207,7 +210,9 @@ export function Workspace() {
               <Coffee size={24} />
             </span>
             <span>
-              こよみ喫茶<small>EVENT SCHEDULE MAKER</small>
+              運営向け
+              <span className="brand-name-line">スケジュールメーカー</span>
+              <small>EVENT SCHEDULE MAKER</small>
             </span>
           </a>
           <div className="sidebar-project">
@@ -326,7 +331,9 @@ export function Workspace() {
                   <Coffee />
                 </span>
                 <span>
-                  こよみ喫茶<small>運営向けスケジュールメーカー</small>
+                  運営向け
+                  <span className="brand-name-line">スケジュールメーカー</span>
+                  <small>EVENT SCHEDULE MAKER</small>
                 </span>
               </div>
               <button onClick={() => setDialog("help")}>使い方</button>
@@ -925,19 +932,21 @@ export function Workspace() {
                     if (!d.days.some((x) => x.date === dateInput))
                       d.days.push({ id: uid(), date: dateInput });
                     if (dayAction === "copy" && date) {
-                      const minutes =
-                        (Date.parse(
-                          instant(`${dateInput}T12:00`, d.project.timezone),
-                        ) -
-                          Date.parse(
-                            instant(`${date}T12:00`, d.project.timezone),
-                          )) /
-                        60000;
                       [...d.sessions]
                         .filter(
                           (s) => dateIn(s.start, d.project.timezone) === date,
                         )
-                        .forEach((s) => duplicateSession(d, s.id, minutes));
+                        .forEach((s) =>
+                          duplicateSession(
+                            d,
+                            s.id,
+                            dateShiftMinutes(
+                              s.start,
+                              dateInput,
+                              d.project.timezone,
+                            ),
+                          ),
+                        );
                     }
                   }
                 });
@@ -951,157 +960,22 @@ export function Workspace() {
         </Modal>
       )}
       {p && dialog === "batch" && (
-        <Modal
-          title="一括編集・時間調整のプレビュー"
+        <BatchDialog
+          p={p}
+          selected={selected}
+          initialAction={batchAction}
           onClose={() => setDialog(null)}
-          wide
-        >
-          <Field label="操作">
-            <select
-              value={batchAction}
-              onChange={(e) => setBatchAction(e.target.value)}
-            >
-              <option value="shift">選択した予定を時間シフト</option>
-              <option value="ripple">選択した予定以降をまとめてシフト</option>
-              <option value="copy">選択した予定を複製（指定分後）</option>
-              <option value="copyDay">別日にコピー</option>
-              <option value="moveDay">別日に移動</option>
-              <option value="venue">会場を一括変更</option>
-              <option value="delete">選択した予定を削除</option>
-            </select>
-          </Field>
-          {["shift", "ripple", "copy"].includes(batchAction) && (
-            <Field label="移動する分数（前倒しは負数）">
-              <input
-                type="number"
-                value={minutes}
-                onChange={(e) => setMinutes(Number(e.target.value))}
-              />
-            </Field>
-          )}
-          {["copyDay", "moveDay"].includes(batchAction) && (
-            <Field label="移動先の日付">
-              <input
-                type="date"
-                required
-                value={batchDay}
-                onChange={(e) => setBatchDay(e.target.value)}
-              />
-            </Field>
-          )}
-          {batchAction === "venue" && (
-            <Field label="変更後の会場">
-              <select
-                value={batchVenue}
-                onChange={(e) => setBatchVenue(e.target.value)}
-              >
-                <option value="">会場未割り当て</option>
-                {p.venues.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          {["copy", "copyDay"].includes(batchAction) && (
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={clearPeople}
-                onChange={(e) => setClearPeople(e.target.checked)}
-              />
-              担当の割り当てを解除して複製
-            </label>
-          )}
-          <div className="import-preview">
-            {p.sessions
-              .filter((s) =>
-                batchAction === "ripple"
-                  ? Date.parse(s.start) >=
-                    Math.min(
-                      ...p.sessions
-                        .filter((x) => selected.includes(x.id))
-                        .map((x) => Date.parse(x.start)),
-                    )
-                  : selected.includes(s.id),
-              )
-              .map((s) => (
-                <p key={s.id}>
-                  <b>{p.programs.find((x) => x.id === s.programId)?.name}</b>
-                  <span className="block">
-                    {stamp(s.start, p.project.timezone)} →{" "}
-                    {["shift", "ripple", "copy"].includes(batchAction)
-                      ? stamp(
-                          new Date(
-                            Date.parse(s.start) + minutes * 60000,
-                          ).toISOString(),
-                          p.project.timezone,
-                        )
-                      : ["copyDay", "moveDay"].includes(batchAction)
-                        ? `${batchDay || "日付未選択"}・同じ時刻`
-                        : batchAction === "delete"
-                          ? "削除"
-                          : p.venues.find((v) => v.id === batchVenue)?.name ||
-                            "会場未割り当て"}
-                  </span>
-                </p>
-              ))}
-          </div>
-          <footer>
-            <button
-              className="primary"
-              disabled={
-                ["copyDay", "moveDay"].includes(batchAction) && !batchDay
-              }
-              onClick={() => {
-                store.edit((d) => {
-                  const threshold = Math.min(
-                    ...d.sessions
-                      .filter((s) => selected.includes(s.id))
-                      .map((s) => Date.parse(s.start)),
-                  );
-                  const ids = d.sessions
-                    .filter((s) =>
-                      batchAction === "ripple"
-                        ? Date.parse(s.start) >= threshold
-                        : selected.includes(s.id),
-                    )
-                    .map((s) => s.id);
-                  for (const id of ids) {
-                    const s = d.sessions.find((s) => s.id === id)!;
-                    let delta = minutes;
-                    if (["copyDay", "moveDay"].includes(batchAction)) {
-                      const local = stamp(s.start, d.project.timezone);
-                      void local;
-                      const oldDay = dateIn(s.start, d.project.timezone);
-                      delta =
-                        (Date.parse(
-                          instant(`${batchDay}T12:00`, d.project.timezone),
-                        ) -
-                          Date.parse(
-                            instant(`${oldDay}T12:00`, d.project.timezone),
-                          )) /
-                        60000;
-                    }
-                    if (batchAction === "delete") deleteSession(d, id);
-                    else if (batchAction === "venue") s.venueId = batchVenue;
-                    else if (["copy", "copyDay"].includes(batchAction))
-                      duplicateSession(d, id, delta, clearPeople);
-                    else shiftSession(d, id, delta);
-                  }
-                });
-                setSelected([]);
-                setDialog(null);
-              }}
-            >
-              プレビューを確認して適用
-            </button>
-          </footer>
-        </Modal>
+          onDone={() => {
+            setSelected([]);
+            setDialog(null);
+          }}
+        />
       )}
       {dialog === "help" && (
-        <Modal title="こよみ喫茶へようこそ" onClose={() => setDialog(null)}>
+        <Modal
+          title="運営向けスケジュールメーカーへようこそ"
+          onClose={() => setDialog(null)}
+        >
           <ol className="tutorial">
             <li>
               <b>イベントをつくる</b>

@@ -582,6 +582,18 @@ export function Settings({ p }: { p: Project }) {
           />
           時間を縦軸にする
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={p.settings.showFree}
+            onChange={(e) =>
+              edit((d) => {
+                d.settings.showFree = e.target.checked;
+              })
+            }
+          />
+          空き時間の長さをタイムラインに表示
+        </label>
         <h3>タイムラインに表示する人物</h3>
         <div className="chip-options">
           {p.people.map((person) => (
@@ -602,19 +614,55 @@ export function Settings({ p }: { p: Project }) {
           ))}
         </div>
         <h3>プログラムテンプレート</h3>
-        <div className="tags">
+        <div className="template-list">
           {p.templates.map((t) => (
-            <button
-              key={t.id}
-              onClick={() =>
-                edit((d) => {
-                  d.templates = d.templates.filter((x) => x.id !== t.id);
-                })
-              }
-              title="削除"
-            >
-              {t.name} · {t.duration}分 ×
-            </button>
+            <div className="toolbar" key={t.id}>
+              <input
+                aria-label={t.name + "の名前"}
+                value={t.name}
+                onChange={(e) =>
+                  edit((d) => {
+                    d.templates.find((x) => x.id === t.id)!.name =
+                      e.target.value;
+                  })
+                }
+              />
+              <input
+                aria-label={t.name + "の所要時間（分）"}
+                type="number"
+                min="1"
+                max="1440"
+                value={t.duration}
+                onChange={(e) =>
+                  edit((d) => {
+                    d.templates.find((x) => x.id === t.id)!.duration = Number(
+                      e.target.value,
+                    );
+                  })
+                }
+              />
+              <input
+                aria-label={t.name + "の色"}
+                type="color"
+                value={t.color}
+                onChange={(e) =>
+                  edit((d) => {
+                    d.templates.find((x) => x.id === t.id)!.color =
+                      e.target.value;
+                  })
+                }
+              />
+              <button
+                aria-label={t.name + "を削除"}
+                onClick={() =>
+                  edit((d) => {
+                    d.templates = d.templates.filter((x) => x.id !== t.id);
+                  })
+                }
+              >
+                削除
+              </button>
+            </div>
           ))}
         </div>
         <div className="toolbar">

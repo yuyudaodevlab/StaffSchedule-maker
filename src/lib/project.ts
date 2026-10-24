@@ -78,6 +78,7 @@ export function sampleProject() {
     "裏方",
   ].map((name, i) => ({
     id: uid(),
+    category: i < 2 ? ("speaker" as const) : ("staff" as const),
     name,
     description: "",
     color: palette[i % 6],
@@ -205,7 +206,7 @@ export function assignmentMatches(p: Project, a: Assignment, f: Filter) {
   );
 }
 export function matches(p: Project, s: Session, f: Filter) {
-  if(f.program && f.program!==s.programId) return false;
+  if (f.program && f.program !== s.programId) return false;
   const pr = p.programs.find((x) => x.id === s.programId)!;
   const aa = p.assignments.filter((a) => a.sessionId === s.id);
   if (
@@ -242,8 +243,14 @@ export function matches(p: Project, s: Session, f: Filter) {
     pr.internalNotes,
     ...pr.tags,
     p.venues.find((v) => v.id === s.venueId)?.name || "",
+    p.venues.find((v) => v.id === s.venueId)?.notes || "",
     ...aa.flatMap((a) => [
       a.notes,
+      p.groups.find((g) => g.id === a.groupId)?.notes || "",
+      p.roles.find((r) => r.id === a.roleId)?.description || "",
+      ...assignedPeople(p, a).map(
+        (id) => p.people.find((person) => person.id === id)?.notes || "",
+      ),
       p.roles.find((r) => r.id === a.roleId)?.name || "",
       p.groups.find((g) => g.id === a.groupId)?.name || "",
       ...assignedPeople(p, a).map(
@@ -402,7 +409,12 @@ export function subset(p: Project, f: Filter) {
   const ids = new Set(
     q.assignments
       .flatMap((a) => assignedPeople(p, a))
-      .filter((id) => (!f.person || id === f.person) && (!f.group || !!p.groups.find(g=>g.id===f.group)?.personIds.includes(id))),
+      .filter(
+        (id) =>
+          (!f.person || id === f.person) &&
+          (!f.group ||
+            !!p.groups.find((g) => g.id === f.group)?.personIds.includes(id)),
+      ),
   );
   q.people = q.people.filter((x) => ids.has(x.id));
   q.groups = q.groups

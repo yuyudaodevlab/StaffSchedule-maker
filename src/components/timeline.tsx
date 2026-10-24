@@ -10,8 +10,23 @@ import {
   ArrowLeftRight,
 } from "lucide-react";
 import { Project, Session, Filter } from "@/lib/model";
-import { sorted, assignedPeople, matches, shiftSession, ensureDays } from "@/lib/project";
-import { dayBounds, clock, instant, dateIn, overlaps } from "@/lib/time";
+import {
+  sorted,
+  assignedPeople,
+  matches,
+  shiftSession,
+  ensureDays,
+  duplicateSession,
+} from "@/lib/project";
+import {
+  dayBounds,
+  displayDayBounds,
+  clock,
+  instant,
+  dateIn,
+  overlaps,
+  mergeIntervals,
+} from "@/lib/time";
 import { conflicts } from "@/lib/conflicts";
 import { useStore } from "@/stores/project-store";
 import { InitialSlot } from "./program-editor";
@@ -45,12 +60,32 @@ export function Timeline({
 }) {
   const scroll = useRef<HTMLDivElement>(null);
   const [closed, setClosed] = useState<string[]>([]);
+  const [context, setContext] = useState<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [position, setPosition] = useState({
     top: 0,
     left: 0,
     height: 650,
     width: 1000,
   });
+  useEffect(() => {
+    const el = scroll.current;
+    if (!el) return;
+    const update = () =>
+      setPosition({
+        top: el.scrollTop,
+        left: el.scrollLeft,
+        height: el.clientHeight,
+        width: el.clientWidth,
+      });
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    update();
+    return () => observer.disconnect();
+  }, []);
   const [now, setNow] = useState(Date.now());
   const [jump, setJump] = useState("12:00");
   const [drag, setDrag] = useState<{
@@ -84,15 +119,49 @@ export function Timeline({
       )[1],
     ];
   }, [date, zone, p.days]);
-  const start = bounds[0] + (date ? p.settings.startHour * 3600000 : 0),
-    end = bounds[1] - (date ? (24 - p.settings.endHour) * 3600000 : 0);
+  const [start, end] = useMemo(() => {
+    if (!date) return bounds;
+    const requested = displayDayBounds(
+      date,
+      p.settings.startHour,
+      p.settings.endHour,
+      zone,
+    );
+    const sessionIndex = new Map(p.sessions.map((s) => [s.id, s]));
+    const intervals = [
+      ...p.sessions.map((s) => [Date.parse(s.start), Date.parse(s.end)]),
+      ...p.assignments.map((a) => {
+        const s = sessionIndex.get(a.sessionId)!;
+        return [Date.parse(a.start || s.start), Date.parse(a.end || s.end)];
+      }),
+    ].filter(([a, b]) => overlaps(a, b, bounds[0], bounds[1]));
+    const earliest = Math.min(requested[0], ...intervals.map(([a]) => a));
+    const latest = Math.max(requested[1], ...intervals.map(([, b]) => b));
+    return [
+      Math.max(bounds[0], Math.floor(earliest / 3600000) * 3600000),
+      Math.min(bounds[1], Math.ceil(latest / 3600000) * 3600000),
+    ];
+  }, [
+    date,
+    bounds,
+    p.sessions,
+    p.assignments,
+    p.settings.startHour,
+    p.settings.endHour,
+    zone,
+  ]);
   const ppm = p.settings.zoom;
   const length = ((end - start) / 60000) * ppm;
   const warnings = useMemo(
     () => new Set(conflicts(p).flatMap((c) => c.sessionIds)),
     [p],
   );
-  const assignmentIndex=useMemo(()=>{const index=new Map<string,typeof p.assignments>();for(const a of p.assignments) index.set(a.sessionId,[...(index.get(a.sessionId)||[]),a]);return index;},[p.assignments]);
+  const assignmentIndex = useMemo(() => {
+    const index = new Map<string, typeof p.assignments>();
+    for (const a of p.assignments)
+      index.set(a.sessionId, [...(index.get(a.sessionId) || []), a]);
+    return index;
+  }, [p.assignments]);
   const rows = useMemo(() => {
     const result: Row[] = [];
     const relevant = p.sessions.filter(
@@ -123,7 +192,7 @@ export function Timeline({
               bounds[1],
             )) ||
           (s.venueId === v.id &&
-            (assignmentIndex.get(s.id)||[]).some(
+            (assignmentIndex.get(s.id) || []).some(
               (a) =>
                 a.sessionId === s.id &&
                 overlaps(
@@ -173,7 +242,7 @@ export function Timeline({
           p,
         );
         const groupSessions = sessions.filter((s) =>
-          (assignmentIndex.get(s.id)||[]).some(
+          (assignmentIndex.get(s.id) || []).some(
             (a) =>
               a.sessionId === s.id &&
               ((a.groupId === g.id && g.id !== "") ||
@@ -194,7 +263,7 @@ export function Timeline({
           name: "グループ全体",
           kind: "group",
           sessions: groupSessions.filter((s) =>
-            (assignmentIndex.get(s.id)||[]).some(
+            (assignmentIndex.get(s.id) || []).some(
               (a) => a.sessionId === s.id && a.groupId === g.id,
             ),
           ),
@@ -202,7 +271,7 @@ export function Timeline({
         if (closed.includes(key)) continue;
         for (const person of people) {
           const ps = sessions.filter((s) =>
-            (assignmentIndex.get(s.id)||[]).some(
+            (assignmentIndex.get(s.id) || []).some(
               (a) =>
                 a.sessionId === s.id &&
                 assignedPeople(p, a).includes(person.id) &&
@@ -232,7 +301,7 @@ export function Timeline({
     );
   const timeRange = (row: Row, s: Session) => {
     if (!row.personId) return [Date.parse(s.start), Date.parse(s.end)];
-    const aa = (assignmentIndex.get(s.id)||[]).filter(
+    const aa = (assignmentIndex.get(s.id) || []).filter(
       (a) =>
         a.sessionId === s.id && assignedPeople(p, a).includes(row.personId),
     );
@@ -240,6 +309,22 @@ export function Timeline({
       Math.min(...aa.map((a) => Date.parse(a.start || s.start))),
       Math.max(...aa.map((a) => Date.parse(a.end || s.end))),
     ];
+  };
+  const freeIntervals = (row: Row) => {
+    const busy = mergeIntervals(
+      row.sessions
+        .filter((s) => s.status !== "中止")
+        .map((s) => timeRange(row, s) as [number, number]),
+    );
+    const out: [number, number][] = [];
+    let cursor = start;
+    for (const [a, b] of busy) {
+      if (b <= start || a >= end) continue;
+      if (a > cursor) out.push([cursor, a]);
+      cursor = Math.max(cursor, b);
+    }
+    if (cursor < end) out.push([cursor, end]);
+    return out;
   };
   const pointerStart = (
     e: PointerEvent,
@@ -272,8 +357,10 @@ export function Timeline({
             (drag.kind === "start" &&
               Date.parse(candidate) < Date.parse(s.end)) ||
             (drag.kind === "end" && Date.parse(candidate) > Date.parse(s.start))
-          )
-            {s[drag.kind] = candidate;ensureDays(d,s);}
+          ) {
+            s[drag.kind] = candidate;
+            ensureDays(d, s);
+          }
         }
       });
     }
@@ -287,13 +374,37 @@ export function Timeline({
         : { left: offset, behavior: "smooth" },
     );
   };
-  let totalSize=0;
-  const layout=rows.map(row=>{const ends:number[]=[];const tracks=new Map<string,number>();for(const session of [...row.sessions].sort((a,b)=>timeRange(row,a)[0]-timeRange(row,b)[0])){const [start,end]=timeRange(row,session);let track=ends.findIndex(value=>value<=start);if(track<0)track=ends.length;ends[track]=end;tracks.set(session.id,track);}const size=Math.max(1,ends.length)*lane;const offset=totalSize;totalSize+=size;return {offset,size,tracks};});
-  const viewportStart=vertical?position.left:position.top;
-  const found=layout.findIndex(item=>item.offset+item.size>=viewportStart);
-  const first=Math.max(0,(found<0?rows.length:found)-2);
-  let last=first;while(last<rows.length && layout[last].offset<viewportStart+(vertical?position.width:position.height)+lane*3)last++;
-  const visible=rows.slice(first,last);
+  let totalSize = 0;
+  const layout = rows.map((row) => {
+    const ends: number[] = [];
+    const tracks = new Map<string, number>();
+    for (const session of [...row.sessions].sort(
+      (a, b) => timeRange(row, a)[0] - timeRange(row, b)[0],
+    )) {
+      const [start, end] = timeRange(row, session);
+      let track = ends.findIndex((value) => value <= start);
+      if (track < 0) track = ends.length;
+      ends[track] = end;
+      tracks.set(session.id, track);
+    }
+    const size = Math.max(1, ends.length) * lane;
+    const offset = totalSize;
+    totalSize += size;
+    return { offset, size, tracks };
+  });
+  const viewportStart = vertical ? position.left : position.top;
+  const found = layout.findIndex(
+    (item) => item.offset + item.size >= viewportStart,
+  );
+  const first = Math.max(0, (found < 0 ? rows.length : found) - 2);
+  let last = first;
+  while (
+    last < rows.length &&
+    layout[last].offset <
+      viewportStart + (vertical ? position.width : position.height) + lane * 3
+  )
+    last++;
+  const visible = rows.slice(first, last);
   const timeOffset = vertical ? position.top : position.left;
   const firstTick = Math.max(
       0,
@@ -314,6 +425,52 @@ export function Timeline({
   );
   return (
     <section className="timeline-shell">
+      {context && (
+        <>
+          <button
+            className="context-shade"
+            aria-label="メニューを閉じる"
+            onClick={() => setContext(null)}
+          />
+          <div
+            className="context-menu"
+            role="menu"
+            style={{ left: context.x, top: context.y }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setContext(null);
+            }}
+          >
+            <button
+              role="menuitem"
+              autoFocus
+              onClick={() => {
+                onEdit(context.id);
+                setContext(null);
+              }}
+            >
+              詳細・編集・削除
+            </button>
+            <button
+              role="menuitem"
+              onClick={() => {
+                edit((d) => duplicateSession(d, context.id, 30));
+                setContext(null);
+              }}
+            >
+              30分後に複製
+            </button>
+            <button
+              role="menuitem"
+              onClick={() => {
+                onSelect(context.id);
+                setContext(null);
+              }}
+            >
+              一括操作の対象にする
+            </button>
+          </div>
+        </>
+      )}
       <div className="timeline-tools">
         <div>
           <span className="live-dot" />
@@ -419,7 +576,12 @@ export function Timeline({
         >
           <div
             className="timeline-corner"
-            style={{ left: position.left, top: position.top, width: vertical ? 80 : 360, height: vertical ? 90 : 44 }}
+            style={{
+              left: position.left,
+              top: position.top,
+              width: vertical ? 80 : 360,
+              height: vertical ? 90 : 44,
+            }}
           >
             {vertical ? (
               "時間"
@@ -470,7 +632,12 @@ export function Timeline({
                   className={`row-label ${row.kind}`}
                   style={
                     vertical
-                      ? { left: 80 + layout[i].offset, top: position.top, width: layout[i].size, height: 90 }
+                      ? {
+                          left: 80 + layout[i].offset,
+                          top: position.top,
+                          width: layout[i].size,
+                          height: 90,
+                        }
                       : {
                           top: 44 + layout[i].offset,
                           left: position.left,
@@ -556,7 +723,69 @@ export function Timeline({
                     });
                   }}
                 >
-                  {row.sessions.map((s, j) => {
+                  {Array.from(
+                    {
+                      length:
+                        Math.ceil(
+                          (vertical ? position.height : position.width) /
+                            (360 * ppm),
+                        ) + 2,
+                    },
+                    (_, index) =>
+                      index +
+                      Math.max(0, Math.floor(timeOffset / (360 * ppm)) - 1),
+                  ).map((n) => (
+                    <span
+                      className="time-period"
+                      key={n}
+                      style={
+                        vertical
+                          ? {
+                              top: n * 360 * ppm,
+                              height: Math.min(
+                                360 * ppm,
+                                length - n * 360 * ppm,
+                              ),
+                              width: "100%",
+                              background: n % 2 ? "#e5dff025" : "#d7e7dc22",
+                            }
+                          : {
+                              left: n * 360 * ppm,
+                              width: Math.max(
+                                0,
+                                Math.min(360 * ppm, length - n * 360 * ppm),
+                              ),
+                              height: "100%",
+                              background: n % 2 ? "#e5dff025" : "#d7e7dc22",
+                            }
+                      }
+                    />
+                  ))}
+                  {p.settings.showFree &&
+                    freeIntervals(row)
+                      .filter(([a, b]) => ((b - a) / 60000) * ppm > 65)
+                      .map(([a, b]) => (
+                        <span
+                          className="free-interval"
+                          key={a}
+                          style={
+                            vertical
+                              ? {
+                                  top: ((a - start) / 60000) * ppm,
+                                  height: ((b - a) / 60000) * ppm,
+                                  width: "100%",
+                                }
+                              : {
+                                  left: ((a - start) / 60000) * ppm,
+                                  width: ((b - a) / 60000) * ppm,
+                                  height: "100%",
+                                }
+                          }
+                        >
+                          空き {Math.round((b - a) / 60000)}分
+                        </span>
+                      ))}
+                  {row.sessions.map((s) => {
                     const program = p.programs.find(
                       (pr) => pr.id === s.programId,
                     )!;
@@ -587,14 +816,16 @@ export function Timeline({
                             ? {
                                 top: x,
                                 height: Math.max(w, 4),
-                                left: 5 + (layout[i].tracks.get(s.id)||0)*lane,
+                                left:
+                                  5 + (layout[i].tracks.get(s.id) || 0) * lane,
                                 width: lane - 14,
                                 background: program.color,
                               }
                             : {
                                 left: x,
                                 width: Math.max(w, 4),
-                                top: 7 + (layout[i].tracks.get(s.id)||0)*lane,
+                                top:
+                                  7 + (layout[i].tracks.get(s.id) || 0) * lane,
                                 height: lane - 18,
                                 background: program.color,
                               }
@@ -608,6 +839,14 @@ export function Timeline({
                           if (e.ctrlKey || e.metaKey || e.shiftKey)
                             onSelect(s.id);
                           else onEdit(s.id);
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContext({
+                            id: s.id,
+                            x: Math.min(e.clientX, window.innerWidth - 230),
+                            y: Math.min(e.clientY, window.innerHeight - 150),
+                          });
                         }}
                         onPointerDown={(e) => pointerStart(e, s.id, "move")}
                         onPointerMove={pointerMove}
@@ -684,4 +923,3 @@ export function Timeline({
     </section>
   );
 }
-

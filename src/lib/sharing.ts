@@ -6,6 +6,7 @@ export const shareFields = [
   "time",
   "venue",
   "people",
+  "staff",
   "groups",
   "roles",
   "notes",
@@ -18,7 +19,8 @@ export const shareLabels: Record<ShareField, string> = {
   name: "プログラム名",
   time: "開始・終了時刻",
   venue: "会場",
-  people: "人物名（公開設定の人物のみ）",
+  people: "登壇者・出演者名（公開可能な人物のみ）",
+  staff: "スタッフ名（公開可能な人物のみ）",
   groups: "グループ名",
   roles: "ロール名",
   notes: "公開用メモ",
@@ -28,52 +30,73 @@ export const shareLabels: Record<ShareField, string> = {
 };
 const t = z.string().max(20000);
 const dt = z.string().datetime({ offset: true });
-export const snapshotSchema = z.object({
-  kind: z.literal("schedule-snapshot"),
-  version: z.literal(1),
-  name: t,
-  timezone: z.string().refine((s) => {
-    try {
-      new Intl.DateTimeFormat("ja", { timeZone: s });
-      return true;
-    } catch {
-      return false;
+export const snapshotSchema = z
+  .object({
+    kind: z.literal("schedule-snapshot"),
+    version: z.literal(1),
+    name: t,
+    timezone: z.string().refine((s) => {
+      try {
+        new Intl.DateTimeFormat("ja", { timeZone: s });
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+    createdAt: dt,
+    entries: z
+      .array(
+        z.object({
+          id: t,
+          name: t.optional(),
+          start: dt.optional(),
+          end: dt.optional(),
+          venue: t.optional(),
+          color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+          people: z
+            .array(
+              z.object({
+                name: t,
+                role: t.optional(),
+                start: dt.optional(),
+                end: dt.optional(),
+                gather: dt.optional(),
+              }),
+            )
+            .optional(),
+          groups: z.array(t).optional(),
+          roles: z.array(t).optional(),
+          notes: t.optional(),
+          status: t.optional(),
+          tags: z.array(t).optional(),
+          gather: dt.optional(),
+          prepare: dt.optional(),
+          rehearsal: dt.optional(),
+          cleanup: dt.optional(),
+        }),
+      )
+      .max(10000),
+  })
+  .superRefine((data, ctx) => {
+    if (new Set(data.entries.map((e) => e.id)).size !== data.entries.length)
+      ctx.addIssue({ code: "custom", message: "共有IDが重複しています" });
+    for (const e of data.entries) {
+      if (
+        Boolean(e.start) !== Boolean(e.end) ||
+        (e.start && e.end && Date.parse(e.start) >= Date.parse(e.end))
+      )
+        ctx.addIssue({
+          code: "custom",
+          message: "共有予定の時間範囲が不正です",
+        });
+      for (const p of e.people || [])
+        if (
+          Boolean(p.start) !== Boolean(p.end) ||
+          (p.start && p.end && Date.parse(p.start) >= Date.parse(p.end))
+        )
+          ctx.addIssue({ code: "custom", message: "担当時間が不正です" });
     }
-  }),
-  createdAt: dt,
-  entries: z
-    .array(
-      z.object({
-        id: t,
-        name: t.optional(),
-        start: dt.optional(),
-        end: dt.optional(),
-        venue: t.optional(),
-        color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-        people: z
-          .array(
-            z.object({
-              name: t,
-              role: t.optional(),
-              start: dt.optional(),
-              end: dt.optional(),
-              gather: dt.optional(),
-            }),
-          )
-          .optional(),
-        groups: z.array(t).optional(),
-        roles: z.array(t).optional(),
-        notes: t.optional(),
-        status: t.optional(),
-        tags: z.array(t).optional(),
-        gather: dt.optional(),
-        prepare: dt.optional(),
-        rehearsal: dt.optional(),
-        cleanup: dt.optional(),
-      }),
-    )
-    .max(10000),
-}).superRefine((data,ctx)=>{if(new Set(data.entries.map(e=>e.id)).size!==data.entries.length)ctx.addIssue({code:"custom",message:"共有IDが重複しています"});for(const e of data.entries){if(Boolean(e.start)!==Boolean(e.end)||e.start&&e.end&&Date.parse(e.start)>=Date.parse(e.end))ctx.addIssue({code:"custom",message:"共有予定の時間範囲が不正です"});for(const p of e.people||[])if(Boolean(p.start)!==Boolean(p.end)||p.start&&p.end&&Date.parse(p.start)>=Date.parse(p.end))ctx.addIssue({code:"custom",message:"担当時間が不正です"});}});
+  });
 export type ShareSnapshot = z.infer<typeof snapshotSchema>;
 export type SnapshotEntry = ShareSnapshot["entries"][number];
 export function snapshot(
@@ -101,14 +124,29 @@ export function snapshot(
       }
       if (enabled.has("venue"))
         e.venue = p.venues.find((v) => v.id === s.venueId)?.name;
-      if (enabled.has("people"))
+      if (enabled.has("people") || enabled.has("staff"))
         e.people = aa
           .flatMap((a) =>
             assignedPeople(p, a)
-              .filter((id) => (!f.person || id === f.person) && (!f.group || !!p.groups.find(g=>g.id===f.group)?.personIds.includes(id)))
+              .filter(
+                (id) =>
+                  (!f.person || id === f.person) &&
+                  (!f.group ||
+                    !!p.groups
+                      .find((g) => g.id === f.group)
+                      ?.personIds.includes(id)),
+              )
               .map((id) => ({ person: p.people.find((x) => x.id === id)!, a })),
           )
-          .filter(({ person }) => person.public)
+          .filter(
+            ({ person, a }) =>
+              person.public &&
+              enabled.has(
+                p.roles.find((r) => r.id === a.roleId)?.category === "speaker"
+                  ? "people"
+                  : "staff",
+              ),
+          )
           .map(({ person, a }) => ({
             name: person.displayName || person.name,
             ...(enabled.has("roles")
@@ -126,7 +164,10 @@ export function snapshot(
         e.groups = [
           ...new Set(
             aa
-              .map((a) => p.groups.find((g) => g.id === (f.group||a.groupId))?.name)
+              .map(
+                (a) =>
+                  p.groups.find((g) => g.id === (f.group || a.groupId))?.name,
+              )
               .filter((x): x is string => !!x),
           ),
         ];
@@ -140,7 +181,7 @@ export function snapshot(
         ];
       if (enabled.has("notes")) e.notes = pr.publicNotes;
       if (enabled.has("status")) e.status = s.status;
-      if (enabled.has("tags")) e.tags = pr.tags;
+      if (enabled.has("tags")) e.tags = [...pr.tags];
       if (enabled.has("operations"))
         for (const key of [
           "gather",
@@ -197,8 +238,12 @@ export async function encodeSnapshot(s: ShareSnapshot) {
   );
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
-  const encoded = btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-  if(encoded.length>150000) throw new Error("共有URLが上限を超えます。共有用JSONをご利用ください");
+  const encoded = btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  if (encoded.length > 150000)
+    throw new Error("共有URLが上限を超えます。共有用JSONをご利用ください");
   return encoded;
 }
 export async function decodeSnapshot(encoded: string) {

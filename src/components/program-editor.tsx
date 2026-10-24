@@ -162,7 +162,8 @@ export function ProgramEditor({
     <Modal
       title={old ? "プログラムを編集" : "プログラムを追加"}
       onClose={onClose}
-      wide drawer
+      wide
+      drawer
     >
       <form
         onSubmit={(e) => {
@@ -265,6 +266,11 @@ export function ProgramEditor({
                     updateAssignment(a.id, {
                       personId: e.target.value,
                       groupId: "",
+                      roleId:
+                        a.roleId ||
+                        p.people.find((person) => person.id === e.target.value)
+                          ?.roleIds[0] ||
+                        "",
                     })
                   }
                 >
@@ -516,6 +522,28 @@ export function ProgramEditor({
               同じ企画の別会場枠でも、名称・説明・メモ・色は共通です。時間と担当は各枠に保存されます。
             </p>
           )}
+          <button
+            type="button"
+            disabled={
+              !program.name.trim() ||
+              Date.parse(session.end) <= Date.parse(session.start)
+            }
+            onClick={() => {
+              edit((d) =>
+                d.templates.push({
+                  id: uid(),
+                  name: program.name,
+                  duration:
+                    (Date.parse(session.end) - Date.parse(session.start)) /
+                    60000,
+                  color: program.color,
+                }),
+              );
+              setError("テンプレートに保存しました");
+            }}
+          >
+            この名前・時間・色をテンプレートに保存
+          </button>
         </details>
         {error && (
           <p className="error" role="alert">

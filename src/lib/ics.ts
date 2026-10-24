@@ -32,7 +32,7 @@ export function exportIcs(data: ShareSnapshot) {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Koyomi Kissa//Schedule Maker//JA",
+    "PRODID:-//Event Schedule Maker//Schedule Maker//JA",
     "CALSCALE:GREGORIAN",
   ];
   for (const e of data.entries) {
@@ -100,7 +100,8 @@ export function parseIcs(
   for (const comp of events) {
     const name = String(comp.getFirstPropertyValue("summary") || "名称なし");
     try {
-      if(comp.getAllSubcomponents().length) result.warnings.push(`${name}: アラームなどの付属情報は取り込みません`);
+      if (comp.getAllSubcomponents().length)
+        result.warnings.push(`${name}: アラームなどの付属情報は取り込みません`);
       if (
         comp.hasProperty("rrule") ||
         comp.hasProperty("rdate") ||

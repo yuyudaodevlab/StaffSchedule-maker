@@ -14,6 +14,7 @@ import { download, renderImages, ImageOptions } from "@/lib/export";
 import { subset, filtered } from "@/lib/project";
 import { stamp } from "@/lib/time";
 import { Modal, Field, Empty } from "./ui";
+import { PrintSchedule } from "./print-schedule";
 import { Filters } from "./filters";
 import {
   Download,
@@ -325,12 +326,18 @@ export function ExportDialog({
     legend: true,
     padding: 28,
     width: 1400,
-    tick:30, venue:true, date:true,
+    tick: 30,
+    venue: true,
+    date: true,
   });
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [paper, setPaper] = useState("A4");
+  const [printGroup, setPrintGroup] = useState<"none" | "date" | "venue">(
+    "date",
+  );
+  const [printMargin, setPrintMargin] = useState(12);
   const [orientation, setOrientation] = useState("landscape");
   const data = useMemo(() => shared || snapshot(p!, f), [p, f, shared]);
   return (
@@ -366,8 +373,17 @@ export function ExportDialog({
       <div className="export-options">
         <button
           onClick={() => {
-            const sessions = p ? filtered(p,f) : [];
-            const d = {...data, entries:data.entries.map((entry,index)=>({...entry,id:p ? (sessions[index].icsUid || sessions[index].id+'@koyomi-kissa') : entry.id}))};
+            const sessions = p ? filtered(p, f) : [];
+            const d = {
+              ...data,
+              entries: data.entries.map((entry, index) => ({
+                ...entry,
+                id: p
+                  ? sessions[index].icsUid ||
+                    sessions[index].id + "@koyomi-kissa"
+                  : entry.id,
+              })),
+            };
             download(
               exportIcs(d),
               "schedule.ics",
@@ -409,7 +425,60 @@ export function ExportDialog({
         )}
       </div>
       <h3>PNG画像</h3>
-      <div className="toolbar"><Field label="目盛りの最小単位"><select value={options.tick} onChange={e=>{setOptions({...options,tick:Number(e.target.value)});setImages([]);}}>{[1,5,10,15,30,60].map(t=><option key={t} value={t}>{t}分（重ならない間隔に自動調整）</option>)}</select></Field>{(["venue","date"] as const).map(key=><label className="check" key={key}><input type="checkbox" checked={options[key]} onChange={e=>{setOptions({...options,[key]:e.target.checked});setImages([]);}}/>{key==="venue"?"会場を表示":"日付を表示"}</label>)}</div>
+      <Field label="画像テーマ">
+        <select
+          value={
+            options.background === "#241f1c"
+              ? "dark"
+              : options.background === "#fffaf3"
+                ? "light"
+                : "custom"
+          }
+          onChange={(e) => {
+            if (e.target.value !== "custom") {
+              setOptions({
+                ...options,
+                background: e.target.value === "dark" ? "#241f1c" : "#fffaf3",
+              });
+              setImages([]);
+            }
+          }}
+        >
+          <option value="light">ライト</option>
+          <option value="dark">ダーク</option>
+          <option value="custom">カスタム背景色</option>
+        </select>
+      </Field>
+      <div className="toolbar">
+        <Field label="目盛りの最小単位">
+          <select
+            value={options.tick}
+            onChange={(e) => {
+              setOptions({ ...options, tick: Number(e.target.value) });
+              setImages([]);
+            }}
+          >
+            {[1, 5, 10, 15, 30, 60].map((t) => (
+              <option key={t} value={t}>
+                {t}分（重ならない間隔に自動調整）
+              </option>
+            ))}
+          </select>
+        </Field>
+        {(["venue", "date"] as const).map((key) => (
+          <label className="check" key={key}>
+            <input
+              type="checkbox"
+              checked={options[key]}
+              onChange={(e) => {
+                setOptions({ ...options, [key]: e.target.checked });
+                setImages([]);
+              }}
+            />
+            {key === "venue" ? "会場を表示" : "日付を表示"}
+          </label>
+        ))}
+      </div>
       <p className="muted small">
         スクロール外も含めた全件を描画します。長い一覧は高さ4,000px以内に分割します。
       </p>
@@ -532,6 +601,29 @@ export function ExportDialog({
       {error && <p className="error">{error}</p>}
       <h3>印刷 / PDFとして保存</h3>
       <div className="toolbar">
+        <Field label="改ページ単位">
+          <select
+            value={printGroup}
+            onChange={(e) => setPrintGroup(e.target.value as typeof printGroup)}
+          >
+            <option value="date">日付ごと</option>
+            <option value="venue">会場ごと</option>
+            <option value="none">自動</option>
+          </select>
+        </Field>
+        <Field label="印刷余白（mm）">
+          <input
+            type="number"
+            min="5"
+            max="30"
+            value={printMargin}
+            onChange={(e) =>
+              setPrintMargin(Math.min(30, Math.max(5, Number(e.target.value))))
+            }
+          />
+        </Field>
+      </div>
+      <div className="toolbar">
         <select
           aria-label="用紙サイズ"
           value={paper}
@@ -555,7 +647,7 @@ export function ExportDialog({
               "12mm",
             );
             const style = document.createElement("style");
-            style.textContent = `@media print { @page {size:${paper} ${orientation};margin:12mm;} }`;
+            style.textContent = `@media print { @page {size:${paper} ${orientation};margin:${printMargin}mm;} }`;
             document.head.appendChild(style);
             window.print();
             setTimeout(() => style.remove(), 1000);
@@ -565,10 +657,7 @@ export function ExportDialog({
           印刷する
         </button>
       </div>
-      <div className="print-content">
-        <h1>{data.name}</h1>
-        <SnapshotCards data={data} />
-      </div>
+      <PrintSchedule data={data} group={printGroup} />
     </Modal>
   );
 }

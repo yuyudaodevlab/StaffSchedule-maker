@@ -50,9 +50,14 @@ export function Field({
   children: React.ReactNode;
 }) {
   const generated = useId();
-  const child = isValidElement<{id?:string}>(children) ? children : null;
+  const child = isValidElement<{ id?: string }>(children) ? children : null;
   const id = child?.props.id || generated;
-  return <div className="field"><label htmlFor={id}>{label}</label>{child ? cloneElement(child,{id}) : children}</div>;
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      {child ? cloneElement(child, { id }) : children}
+    </div>
+  );
 }
 export function Empty({
   title,

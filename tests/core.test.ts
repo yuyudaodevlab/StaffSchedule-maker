@@ -217,4 +217,84 @@ test("検索は全半角・英語大小文字を正規化", () => {
     1,
   );
 });
-test('複数グループに所属する人物経由でも対象外の人物を共有しない',()=>{const p=sampleProject();p.groups[1].personIds.push(p.people[0].id);const f={...emptyFilter(),group:p.groups[1].id};const data=snapshot(p,f);assert.ok(!JSON.stringify(data).includes(p.people[1].name));assert.ok(!JSON.stringify(data).includes(p.people[2].name));assert.ok(data.entries.every(e=>e.groups?.every(name=>name===p.groups[1].name)));const q=subset(p,f);assert.ok(!q.people.some(person=>person.id===p.people[1].id));});
+test("複数グループに所属する人物経由でも対象外の人物を共有しない", () => {
+  const p = sampleProject();
+  p.groups[1].personIds.push(p.people[0].id);
+  const f = { ...emptyFilter(), group: p.groups[1].id };
+  const data = snapshot(p, f);
+  assert.ok(!JSON.stringify(data).includes(p.people[1].name));
+  assert.ok(!JSON.stringify(data).includes(p.people[2].name));
+  assert.ok(
+    data.entries.every((e) =>
+      e.groups?.every((name) => name === p.groups[1].name),
+    ),
+  );
+  const q = subset(p, f);
+  assert.ok(!q.people.some((person) => person.id === p.people[1].id));
+});
+import { batchPreview, dateShiftMinutes } from "../src/lib/editing";
+test("日付コピーは夏時間境界でも開始の壁時計時刻と所要時間を維持", () => {
+  const start = instant("2026-03-07T01:00", "America/New_York");
+  const delta = dateShiftMinutes(start, "2026-03-08", "America/New_York");
+  assert.equal(delta, 1440);
+  const p = sampleProject();
+  const original = JSON.stringify(p);
+  const result = batchPreview(p, [p.sessions[0].id], {
+    action: "shift",
+    minutes: 15,
+    date: "",
+    venueId: "",
+    personId: "",
+    roleId: "",
+    status: "未開始",
+    clearPeople: false,
+  });
+  assert.equal(JSON.stringify(p), original);
+  assert.equal(
+    Date.parse(result.project.sessions[0].start) -
+      Date.parse(p.sessions[0].start),
+    900000,
+  );
+});
+test("JSONの実在しない日付とエンティティ間のID衝突を拒否", () => {
+  const p = sampleProject();
+  p.days[0].date = "2026-02-30";
+  assert.throws(() => validateProject(p));
+  const q = sampleProject();
+  q.people[0].id = q.venues[0].id;
+  assert.throws(() => validateProject(q));
+});
+import { displayDayBounds } from "../src/lib/time";
+test("時間軸の表示範囲は夏時間変更日でも指定した現地時刻", () => {
+  const [start, end] = displayDayBounds(
+    "2026-03-08",
+    8,
+    22,
+    "America/New_York",
+  );
+  assert.equal(
+    localInput(new Date(start).toISOString(), "America/New_York"),
+    "2026-03-08T08:00",
+  );
+  assert.equal(
+    localInput(new Date(end).toISOString(), "America/New_York"),
+    "2026-03-08T22:00",
+  );
+});
+test("登壇者名とスタッフ名を別々に共有できる", () => {
+  const p = sampleProject();
+  const speakers = snapshot(p, emptyFilter(), ["name", "time", "people"]);
+  assert.ok(
+    speakers.entries
+      .flatMap((e) => e.people || [])
+      .every((person) =>
+        p.people.slice(0, 3).some((p) => p.name === person.name),
+      ),
+  );
+  const staff = snapshot(p, emptyFilter(), ["name", "time", "staff"]);
+  assert.ok(
+    staff.entries
+      .flatMap((e) => e.people || [])
+      .every((person) => p.people.slice(3).some((p) => p.name === person.name)),
+  );
+});

@@ -1,3 +1,0 @@
-import { chromium } from '@playwright/test';
-const browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage();page.on('pageerror',e=>console.log('PAGE ERROR',e.message));await page.goto('http://localhost:3000');await page.getByRole('button',{name:'サンプルを試す'}).click();await page.getByRole('button',{name:'共有する',exact:true}).click();await page.getByRole('dialog').getByLabel('人物',{exact:true}).selectOption({label:'田中 はるか'}); await page.getByRole('button',{name:'この内容でリンクを作成'}).click();await page.waitForTimeout(1000);console.log(await page.getByRole('dialog').innerText());await page.screenshot({path:'tests/share-debug.png'});await Promise.race([browser.close(),new Promise(r=>setTimeout(r,2000))]);process.exit(0);
-

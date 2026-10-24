@@ -1,4 +1,5 @@
 "use client";
+import { useId } from "react";
 import { Project, Filter, emptyFilter, statuses } from "@/lib/model";
 import { Field } from "./ui";
 import { Search, SlidersHorizontal, X } from "lucide-react";
@@ -13,17 +14,33 @@ export function Filters({
   onChange: (f: Filter) => void;
   compact?: boolean;
 }) {
+  const suggestionsId = useId();
+  const suggestions = [
+    ...new Set([
+      ...p.programs.flatMap((pr) => [pr.name, ...pr.tags]),
+      ...p.people.map((x) => x.name),
+      ...p.groups.map((x) => x.name),
+      ...p.roles.map((x) => x.name),
+      ...p.venues.map((x) => x.name),
+    ]),
+  ].slice(0, 200);
   return (
     <div className="filters">
       <div className="search-box">
         <Search size={17} />
         <input
           id="schedule-search"
+          list={suggestionsId}
           aria-label="予定を検索"
           value={value.query}
           onChange={(e) => onChange({ ...value, query: e.target.value })}
           placeholder="プログラム、人物、タグを検索…"
         />
+        <datalist id={suggestionsId}>
+          {suggestions.map((value) => (
+            <option key={value} value={value} />
+          ))}
+        </datalist>
         <kbd>⌘ F</kbd>
       </div>
       {(["venue", "group", "person", "role"] as const).map((key, i) => (
@@ -49,7 +66,19 @@ export function Filters({
           詳細
         </summary>
         <div className="filter-popover">
-            <Field label="プログラム"><select value={value.program} onChange={e=>onChange({...value,program:e.target.value})}><option value="">すべてのプログラム</option>{p.programs.map(pr=><option key={pr.id} value={pr.id}>{pr.name}</option>)}</select></Field>
+          <Field label="プログラム">
+            <select
+              value={value.program}
+              onChange={(e) => onChange({ ...value, program: e.target.value })}
+            >
+              <option value="">すべてのプログラム</option>
+              {p.programs.map((pr) => (
+                <option key={pr.id} value={pr.id}>
+                  {pr.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Field label="ステータス">
             <select
               value={value.status}

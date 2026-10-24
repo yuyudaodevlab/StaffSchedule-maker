@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { Coffee, Download, Search, Upload } from "lucide-react";
 import { ShareSnapshot, decodeSnapshot, parseSnapshot } from "@/lib/sharing";
 import { SnapshotCards, SharedTimeline, ExportDialog } from "./sharing-ui";
+import { addDays } from "@/lib/time";
 import { Modal } from "./ui";
 export function SharedView() {
   const [data, setData] = useState<ShareSnapshot | null>(null);
@@ -14,21 +15,38 @@ export function SharedView() {
   const [exportOpen, setExportOpen] = useState(false);
   const [detail, setDetail] = useState("");
   useEffect(() => {
+    let revision = 0;
+    let disposed = false;
     async function load() {
+      const version = ++revision;
+      setLoading(true);
+      setError("");
+      setData(null);
+      setDay("");
+      setQuery("");
+      setDetail("");
+      setExportOpen(false);
       const encoded = new URLSearchParams(location.hash.slice(1)).get("s");
-      if (!encoded) {
-        setLoading(false);
-        return;
-      }
       try {
-        setData(await decodeSnapshot(encoded));
+        if (encoded) {
+          const value = await decodeSnapshot(encoded);
+          if (!disposed && version === revision) setData(value);
+        }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "共有データを読み込めません");
+        if (!disposed && version === revision)
+          setError(
+            e instanceof Error ? e.message : "共有データを読み込めません",
+          );
       } finally {
-        setLoading(false);
+        if (!disposed && version === revision) setLoading(false);
       }
     }
     void load();
+    window.addEventListener("hashchange", load);
+    return () => {
+      disposed = true;
+      window.removeEventListener("hashchange", load);
+    };
   }, []);
   const dateOf = (iso: string) =>
     new Intl.DateTimeFormat("sv-SE", {
@@ -37,6 +55,16 @@ export function SharedView() {
       month: "2-digit",
       day: "2-digit",
     }).format(new Date(iso));
+  const days = new Set<string>();
+  for (const e of data?.entries || []) {
+    if (!e.start || !e.end) continue;
+    let cursor = dateOf(e.start);
+    const last = dateOf(new Date(Date.parse(e.end) - 1).toISOString());
+    for (let count = 0; cursor <= last && count < 366; count++) {
+      days.add(cursor);
+      cursor = addDays(cursor, 1);
+    }
+  }
   const shown = data
     ? {
         ...data,
@@ -46,7 +74,8 @@ export function SharedView() {
               (e.start &&
                 e.end &&
                 dateOf(e.start) <= day &&
-                dateOf(e.end) >= day)) &&
+                dateOf(new Date(Date.parse(e.end) - 1).toISOString()) >=
+                  day)) &&
             JSON.stringify(e)
               .normalize("NFKC")
               .toLowerCase()
@@ -62,7 +91,9 @@ export function SharedView() {
             <Coffee />
           </span>
           <span>
-            こよみ喫茶<small>SHARED SCHEDULE</small>
+            運営向け
+            <span className="brand-name-line">スケジュールメーカー</span>
+            <small>SHARED SCHEDULE</small>
           </span>
         </div>
         <span className="badge">閲覧専用</span>
@@ -104,20 +135,9 @@ export function SharedView() {
                 onChange={(e) => setDay(e.target.value)}
               >
                 <option value="">全日程</option>
-                {[
-                  ...new Set(
-                    data.entries
-                      .flatMap((e) => [
-                        e.start ? dateOf(e.start) : "",
-                        e.end ? dateOf(e.end) : "",
-                      ])
-                      .filter(Boolean),
-                  ),
-                ]
-                  .sort()
-                  .map((d) => (
-                    <option key={d}>{d}</option>
-                  ))}
+                {[...days].sort().map((d) => (
+                  <option key={d}>{d}</option>
+                ))}
               </select>
               <div className="segmented">
                 <button
