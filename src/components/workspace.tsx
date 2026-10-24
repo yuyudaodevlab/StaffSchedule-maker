@@ -340,7 +340,9 @@ export function Workspace() {
             </>
           )}
         </header>
-        <main className="main-content">
+        <main
+          className={`main-content ${p && view === "schedule" ? "schedule-content" : ""} ${p && view === "schedule" && scheduleMode === "timeline" ? "timeline-content" : ""}`}
+        >
           {!p ? (
             <>
               <div className="home-hero">

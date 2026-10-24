@@ -166,7 +166,13 @@ export function Timeline({
     p.settings.endHour,
     zone,
   ]);
-  const ppm = p.settings.zoom;
+  // Keep the selected zoom as a minimum; wide screens can show the full day.
+  const ppm = vertical
+    ? p.settings.zoom
+    : Math.max(
+        p.settings.zoom,
+        (livePosition.width - 360) / ((end - start) / 60000),
+      );
   const length = ((end - start) / 60000) * ppm;
   const warnings = useMemo(
     () => new Set(conflicts(p).flatMap((c) => c.sessionIds)),

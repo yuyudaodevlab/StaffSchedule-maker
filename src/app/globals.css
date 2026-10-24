@@ -2394,3 +2394,41 @@ h3 > .muted {
     height: auto !important;
   }
 }
+
+/* The schedule is a workspace: use the available display, including 4K. */
+.schedule-content {
+  max-width: none;
+  width: 100%;
+}
+@media screen and (min-width: 641px) {
+  .timeline-content {
+    min-height: calc(100dvh - 81px);
+    display: flex;
+    flex-direction: column;
+  }
+  .timeline-content > * {
+    flex-shrink: 0;
+  }
+  .timeline-content .desktop-timeline {
+    display: flex;
+    flex: 1;
+    min-height: 360px;
+    min-width: 0;
+  }
+  .timeline-content .timeline-shell {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+  .timeline-content .timeline-tools,
+  .timeline-content .minimap {
+    flex-shrink: 0;
+  }
+  .timeline-content .timeline-scroll {
+    flex: 1 1 300px;
+    height: auto;
+    min-height: 300px;
+    max-height: none;
+  }
+}
