@@ -208,13 +208,19 @@ export function assignmentMatches(p: Project, a: Assignment, f: Filter) {
 export function matches(p: Project, s: Session, f: Filter) {
   if (f.program && f.program !== s.programId) return false;
   const pr = p.programs.find((x) => x.id === s.programId)!;
-  const aa = p.assignments.filter((a) => a.sessionId === s.id);
   if (
     (f.venue && s.venueId !== f.venue) ||
     (f.status && s.status !== f.status) ||
     (f.tag && !pr.tags.some((t) => normalize(t).includes(normalize(f.tag))))
   )
     return false;
+
+  // Lazily retrieve assignments only if assignment filters or search query need them
+  const aa =
+    f.person || f.group || f.role || f.query
+      ? p.assignments.filter((a) => a.sessionId === s.id)
+      : [];
+
   if (f.person || f.group || f.role) {
     if (!aa.some((a) => assignmentMatches(p, a, f))) return false;
   }
@@ -236,6 +242,10 @@ export function matches(p: Project, s: Session, f: Filter) {
     (f.to && start >= Date.parse(instant(f.to, p.project.timezone)))
   )
     return false;
+
+  // Performance optimization: skip expensive search text aggregation and string normalization when no search query is specified
+  if (!f.query) return true;
+
   const names = [
     pr.name,
     pr.description,
@@ -258,7 +268,7 @@ export function matches(p: Project, s: Session, f: Filter) {
       ),
     ]),
   ];
-  return !f.query || normalize(names.join(" ")).includes(normalize(f.query));
+  return normalize(names.join(" ")).includes(normalize(f.query));
 }
 export function filtered(p: Project, f: Filter) {
   return p.sessions
