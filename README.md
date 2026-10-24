@@ -198,22 +198,3 @@ NEXT_PUBLIC_BASE_PATH=/StaffSchedule-maker npm run build
 ビルドコマンド：`npm run build`、公開ディレクトリ：`out`。ルート配信では `NEXT_PUBLIC_BASE_PATH` を設定しません。SSR用のNext.jsアダプターやサーバー機能は不要です。
 
 全ルートに `trailingSlash: true` を設定しています。`/share/` と `/editor/` は事前生成されたHTMLです。SPA用の全URL書き換えは不要です。HTTPSで配信してください。
-
-## 検証
-
-```sh
-npm run typecheck
-npm test
-npm run build
-npm run preview
-# 別のターミナル（Microsoft Edgeがある環境）
-node scripts/browser-smoke.mjs
-# 10会場・50グループ・300人・1,000予定のロジック確認
-npx tsx scripts/performance-smoke.ts
-```
-
-自動テスト：日付またぎ、夏時間、半開区間、共通実施枠、複数ロール、会場容量、移動・撤収、JSON検証・ID再生成、ICS往復・UTF-8折り返し・TZID・重複UID、共有範囲・非公開項目・圧縮復元、IndexedDB保存・再読込・Undo/Redo。
-
-ブラウザ確認：サンプル作成、固定列スクロール、追加・編集・再読込、人物別共有、共有の独立性、閲覧専用、PNG生成、スマートフォンからの追加。デスクトップと390px幅の画面を確認しています。ブラウザ検証の画像は `tests/*.png` に生成されます。
-
-1,000予定の検証・重複検知は開発環境で確認していますが、特定の処理時間・フレームレートは保証しません。タイムラインの行・目盛り・画面外バーを表示範囲に応じて絞り、担当情報は実施枠ごとに索引化しています。実機のSafari / iOS / Android、大量データの長時間編集、外部カレンダーアプリ、実プリンタでの確認は別途必要です。
